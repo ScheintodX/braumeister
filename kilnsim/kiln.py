@@ -33,12 +33,13 @@ class Kiln:
 
     def tick( self, dt:float, powerfactor:float, damper:float, A1:float, A2:float, A3:float, A4:float ):
 
-        dE:float = dt * powerfactor * self.Q
-        dE -= dt * A1 * powerfactor
-        dE -= dt * A2 * math.pow(self.T() - T_room, 1)
-        dE -= dt * A3 * math.pow(self.T() - T_room, 2)
-        dE -= dt * A4 * math.pow(self.T() - T_room, 3)
-
+        dE:float = 0
+        t:float = self.T()
+        t_diff:float = t - T_room
+        dE += dt * A1 * powerfactor * self.Q
+        dE -= dt * A2 * t_diff
+        dE -= dt * A3 * math.pow( t_diff, 2 )
+        dE -= dt * A4 * math.pow( t_diff, 3 )
         self.E += dE
 
     def T( self ):
@@ -57,16 +58,16 @@ class Kiln:
         self.setT( _K( c ) )
 
 
-def timerange( start:str, end:str, step:int ):
-
-    start_time = datetime.strptime(start, "%Y-%m-%d %H:%M:%S") if type( start ) is str else start
-    end_time = datetime.strptime(end, "%Y-%m-%d %H:%M:%S")
-    step_delta = timedelta(seconds=step)
-
-    current_time = start_time
-    while current_time <= end_time:
-        yield current_time.strftime("%Y-%m-%d %H:%M:%S")
-        current_time += step_delta
+# def timerange( start:str, end:str, step:int ):
+#
+#    start_time = datetime.strptime(start, "%Y-%m-%d %H:%M:%S") if type( start ) is str else start
+#    end_time = datetime.strptime(end, "%Y-%m-%d %H:%M:%S")
+#    step_delta = timedelta(seconds=step)
+#
+#    current_time = start_time
+#    while current_time <= end_time:
+#        yield current_time.strftime("%Y-%m-%d %H:%M:%S")
+#        current_time += step_delta
 
 
 def run_kiln( kiln:Kiln, ref:DataFrame, A1:float, A2:float, A3:float, A4:float):
@@ -95,13 +96,11 @@ def run_kiln( kiln:Kiln, ref:DataFrame, A1:float, A2:float, A3:float, A4:float):
 
 count:int = 0
 
-def run_and_concat( ref:DataFrame, A1:float, A2:float, A3:float, A4:float):
+def run_and_concat( ref:DataFrame, A1:float, A2:float, A3:float, A4:float, plot:bool=False):
 
     global count
 
     count += 1
-
-    print( A1, A2, A3, A4 )
 
     kiln:Kiln = Kiln()
     kiln.setC( ref.iloc[0]['temperature'] )
@@ -110,16 +109,14 @@ def run_and_concat( ref:DataFrame, A1:float, A2:float, A3:float, A4:float):
     sim: DataFrame = run_kiln(kiln, ref, A1, A2, A3, A4)
     ###############################
 
-    x: DataFrame = pd.concat(objs=[ref, sim], axis=1)
-    print( x )
+    x:DataFrame = pd.concat(objs=[ref, sim], axis=1)
 
-    rmsq: float = np.sqrt((( x['temperature'] - x['sim'] ) ** 2 ).mean())
-    print( rmsq )
+    rmsq:float = np.sqrt((( x['temperature'] - x['sim'] ) ** 2 ).mean())
 
-    if rmsq < 4.2:
+    print( f"=== {count: 5d} : {rmsq: 9.3f} : {A1:.4f} {A2:.4f} {A3:.4f} {A4:.4f} ===" )
+
+    if plot or rmsq < 20:
         loader.plot_data( x )
-
-    print( f"=== {count} : {A1:.2f} {A2:.2f} {A3:.2f} {A4:.2f} ===" )
 
     return rmsq
 
@@ -134,23 +131,29 @@ if __name__ == "__main__":
 
     reference:DataFrame = loader.load_data( args.timebase )
     if args.start and args.end:
-        reference = reference.loc[args.start, args.end]
+        args.start = args.start.replace( "T", " " ).replace( "Z", "" )
+        args.end = args.end.replace( "T", " " ).replace( "Z", "" )
+        print( f"{args.start}:{args.end}" )
+        reference = reference.loc[ args.start:args.end ]
 
     #a1 = -1.674
-    a1 = 0
+    a1 = .2
     #a2 = 1.61
-    a2 = 1.597
+    #a2 = 1.597
+    a2 = 1
     #a3 = 8.992e-12
     a3 = 0
     #a4 = 0.0000003
-    a4 = 3.188e-7
-    #a4 = 0
+    #a4 = 3.188e-7
+    a4 = 0
 
     bounds = [ (None,None), (0,2), (0,0.001), (0,0.000001) ]
     guess = [ a1, a2, a3, a4 ]
+    # bounds = [ (0,2), (0,0.001), (0,0.000001) ]
+    # guess = [ a2, a3, a4 ]
 
-    # run_and_concat( reference, a1, a2, a3, a4 )
-    # exit()
+    #run_and_concat( reference, a1, a2, a3, a4, plot=True )
+    #exit()
 
     # res = minimize(lambda x: run_and_concat(
     #               reference,
@@ -164,8 +167,8 @@ if __name__ == "__main__":
                                 niter=100 )
     # -1.2336569678200335 1.5968261689238443 8.993482334815809e-12 3.2888993312988196e-07
     # -1.6737601492964262 1.5969736282670184 2.1522776814502484e-06 3.15861392097465e-07
-    # BFGS finally: [-1.23365697e+00  1.59688647e+00  8.99213712e-12  3.18842235e-07]
-    #                4.12095795950739
+    # L-BFGS finally: [-1.23365697e+00  1.59688647e+00  8.99213712e-12  3.18842235e-07]
+    #                  4.12095795950739
 
     print( res )
     print( dir( res ) )
