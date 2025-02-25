@@ -1,31 +1,29 @@
 from datetime import datetime, timedelta
 from functools import partial, wraps
 
+import argparse
 import pandas as pd
 import loader
 import numpy as np
-from scipy.optimize import minimize
-#from pint import UnitRegistry, Quantity
+from scipy.optimize import minimize, basinhopping, differential_evolution
 
 from pandas import DataFrame
 import math
 
 K = 273
 
-#Unit = UnitRegistry()
+def _K( c ):
+    return c + K
 
-T_room:float = 20
-#T_room:Quantity = Unit.Quantity(20, Unit.degC).to(Unit.K)
+def _C( k ):
+    return k - K
 
-#Dt:Quantity = 30 * Unit.hour #s intervals
+T_room:float = _K( 20 )
 Dt:float = 30 #s intervals
 
 
 class Kiln:
 
-    #c:Quantity = 920 * Unit.J / Unit.kilogram / Unit.K
-    #m:Quantity = 100 * Unit.kilogram
-    #Q:Quantity = 18e3 * Unit.W
     c:float = 920
     m:float = 100
     Q:float = 18000
@@ -50,14 +48,13 @@ class Kiln:
         return r
 
     def C( self ):
-        #return self.T().to( Unit.degC )
-        return self.T() - K
+        return _C( self.T() )
 
     def setT( self, k:float ):
         self.E = k * self.c * self.m
 
     def setC( self, c:float ):
-        self.setT( c + K )
+        self.setT( _K( c ) )
 
 
 def timerange( start:str, end:str, step:int ):
@@ -96,7 +93,13 @@ def run_kiln( kiln:Kiln, ref:DataFrame, A1:float, A2:float, A3:float, A4:float):
     return df
 
 
+count:int = 0
+
 def run_and_concat( ref:DataFrame, A1:float, A2:float, A3:float, A4:float):
+
+    global count
+
+    count += 1
 
     print( A1, A2, A3, A4 )
 
@@ -113,34 +116,58 @@ def run_and_concat( ref:DataFrame, A1:float, A2:float, A3:float, A4:float):
     rmsq: float = np.sqrt((( x['temperature'] - x['sim'] ) ** 2 ).mean())
     print( rmsq )
 
-    #if rmsq < 500:
-    loader.plot_data( x )
+    if rmsq < 4.2:
+        loader.plot_data( x )
 
-    #exit()
+    print( f"=== {count} : {A1:.2f} {A2:.2f} {A3:.2f} {A4:.2f} ===" )
 
     return rmsq
 
 
 if __name__ == "__main__":
 
-    reference:DataFrame = loader.load_data()
-    #ref = ref.loc["2024-11-24 10:00:00":"2024-11-24 13:00:00"]
-    #ref = ref.loc["2024-11-24 19:00:00":"2024-11-24 23:00:00"]
-    reference = reference.loc["2025-01-09 01:44:00":"2025-01-09 19:30:00"]
+    parser = argparse.ArgumentParser( description="Kiln Simulator" )
+    parser.add_argument( "timebase", type=str, help="The time basis. This is FROMTIME_TOTIME. Look in the data directory!" )
+    parser.add_argument("--start", type=str, help="Start time for the data selection (default: start time from timebase)")
+    parser.add_argument("--end", type=str, help="End time for the data selection (default: end time from timebase)")
+    args = parser.parse_args()
 
-    #run_and_concat(reference, 0, .02, 0, 0)
-    #xxx( [16.5, 0.02, 0, 0] )
-    #xxx( [0, 0, 0.00002, 0] )
-    #xxx( [0, 0, 0, 0.00000002] )
+    reference:DataFrame = loader.load_data( args.timebase )
+    if args.start and args.end:
+        reference = reference.loc[args.start, args.end]
 
-    #run_and_concat(reference, 0, 20, 0, 0)
-    #exit()
+    #a1 = -1.674
+    a1 = 0
+    #a2 = 1.61
+    a2 = 1.597
+    #a3 = 8.992e-12
+    a3 = 0
+    #a4 = 0.0000003
+    a4 = 3.188e-7
+    #a4 = 0
 
-    res = minimize(lambda x: run_and_concat(reference, x[0], x[1], x[2], x[3]),
-                   [0,2.6,0,0],
-                   bounds=[(None,None),(0,100),(0,1),(0,1)])
+    bounds = [ (None,None), (0,2), (0,0.001), (0,0.000001) ]
+    guess = [ a1, a2, a3, a4 ]
+
+    # run_and_concat( reference, a1, a2, a3, a4 )
+    # exit()
+
+    # res = minimize(lambda x: run_and_concat(
+    #               reference,
+    #               x[0], x[1], x[2], x[3]),
+    #               guess,
+    #               bounds=bounds )
+    minimizer_kwargs = {"method": "L-BFGS-B", "bounds": bounds}
+    res = basinhopping( lambda x: run_and_concat( reference, x[0], x[1], x[2], x[3] ),
+                                guess,
+                                minimizer_kwargs=minimizer_kwargs,
+                                niter=100 )
+    # -1.2336569678200335 1.5968261689238443 8.993482334815809e-12 3.2888993312988196e-07
+    # -1.6737601492964262 1.5969736282670184 2.1522776814502484e-06 3.15861392097465e-07
+    # BFGS finally: [-1.23365697e+00  1.59688647e+00  8.99213712e-12  3.18842235e-07]
+    #                4.12095795950739
 
     print( res )
-
-
-
+    print( dir( res ) )
+    print( res.x )
+    print( res.fun )

@@ -6,10 +6,10 @@ from pandas import DataFrame
 TEMPERATURE_FIX = 1.113
 ERROR_SCALE = 1000.0
 
-def load_data() -> DataFrame:
+def load_data( timebase:str ) -> DataFrame:
 
     def load_and_fix(filename:str, valuename:str) -> DataFrame:
-        theframe = pd.read_csv("data/"+filename).iloc[:, 1:]
+        theframe = pd.read_csv(f"data/{timebase}_{filename}").iloc[:, 1:]
         theframe["time"] = pd.to_datetime(theframe["time"])
         theframe.set_index("time", inplace=True)
         theframe_resampled = theframe.resample("1s").mean()
